@@ -365,8 +365,13 @@ namespace ts {
             }
             const version = ts.version; // Extracted into a const so the form is stable between namespace and module
             const buildInfo: BuildInfo = { bundle, program, version };
+            performance.mark("beforeBuildInfoStringify");
+            const buildInfoText = getBuildInfoText(buildInfo);
+            performance.mark("afterBuildInfoStringify");
+            performance.measure("BuildInfo stringify", "beforeBuildInfoStringify", "afterBuildInfoStringify");
+            host.buildInfoCallbacks?.onWrite(buildInfoText.length);
             // Pass buildinfo as additional data to avoid having to reparse
-            writeFile(host, emitterDiagnostics, buildInfoPath, getBuildInfoText(buildInfo), /*writeByteOrderMark*/ false, /*sourceFiles*/ undefined, { buildInfo });
+            writeFile(host, emitterDiagnostics, buildInfoPath, buildInfoText, /*writeByteOrderMark*/ false, /*sourceFiles*/ undefined, { buildInfo });
         }
 
         function emitJsFileOrBundle(
@@ -757,7 +762,7 @@ namespace ts {
         const createHash = maybeBind(host, host.createHash);
         const { buildInfoPath, jsFilePath, sourceMapFilePath, declarationFilePath, declarationMapPath } = getOutputPathsForBundle(config.options, /*forceDtsPaths*/ false);
         // If host directly provides buildinfo we can get it directly. This allows host to cache the buildinfo
-        const buildInfo = host.getBuildInfo!(buildInfoPath!, config.options.configFilePath);
+        const buildInfo = host.getBuildInfo!(buildInfoPath!, config.options);
         if (!buildInfo) return buildInfoPath!;
         if (!buildInfo.bundle || !buildInfo.bundle.js || (declarationFilePath && !buildInfo.bundle.dts)) return buildInfoPath!;
 
@@ -859,6 +864,7 @@ namespace ts {
             redirectTargetsMap: createMultiMap(),
             getFileIncludeReasons: notImplemented,
             createHash,
+            buildInfoCallbacks: host.buildInfoCallbacks,
         };
         emitFiles(
             notImplementedResolver,

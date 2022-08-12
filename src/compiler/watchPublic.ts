@@ -4,7 +4,8 @@ namespace ts {
         getCurrentDirectory(): string;
         readFile(fileName: string): string | undefined;
         /*@internal*/
-        getBuildInfo?(fileName: string, configFilePath: string | undefined): BuildInfo | undefined;
+        getBuildInfo?(fileName: string, options: CompilerOptions): BuildInfo | undefined;
+        /*@internal*/ buildInfoCallbacks?: BuildInfoCallbacks;
     }
     export function readBuilderProgram(compilerOptions: CompilerOptions, host: ReadBuildProgramHost) {
         const buildInfoPath = getTsBuildInfoEmitOutputFilePath(compilerOptions);
@@ -12,12 +13,14 @@ namespace ts {
         let buildInfo;
         if (host.getBuildInfo) {
             // host provides buildinfo, get it from there. This allows host to cache it
-            buildInfo = host.getBuildInfo(buildInfoPath, compilerOptions.configFilePath);
+            buildInfo = host.getBuildInfo(buildInfoPath, compilerOptions);
         }
         else {
+            host.buildInfoCallbacks?.onReadStart(compilerOptions);
             const content = host.readFile(buildInfoPath);
-            if (!content) return undefined;
-            buildInfo = getBuildInfo(buildInfoPath, content);
+            host.buildInfoCallbacks?.onReadText(content);
+            buildInfo = content ? getBuildInfo(buildInfoPath, content) : undefined;
+            host.buildInfoCallbacks?.onReadEnd();
         }
         if (!buildInfo || buildInfo.version !== version || !buildInfo.program) return undefined;
         return createBuilderProgramUsingProgramBuildInfo(buildInfo.program, buildInfoPath, host);
@@ -126,6 +129,7 @@ namespace ts {
         // TODO: GH#18217 Optional methods are frequently asserted
         createDirectory?(path: string): void;
         writeFile?(path: string, data: string, writeByteOrderMark?: boolean): void;
+        buildInfoCallbacks?: BuildInfoCallbacks;
         // For testing
         disableUseFileVersionAsSignature?: boolean;
         storeFilesChangingSignatureDuringEmit?: boolean;
@@ -140,7 +144,7 @@ namespace ts {
         getParsedCommandLine?(fileName: string): ParsedCommandLine | undefined;
 
         /** If provided, callback to invoke after every new program creation */
-        afterProgramCreate?(program: T): void;
+        afterProgramCreate?(program: T, host?: CompilerHost): void;
     }
 
     /**
@@ -472,7 +476,7 @@ namespace ts {
 
             reportFileChangeDetectedOnCreateProgram = false;
             if (host.afterProgramCreate && program !== builderProgram) {
-                host.afterProgramCreate(builderProgram);
+                host.afterProgramCreate(builderProgram, compilerHost);
             }
 
             compilerHost.readFile = originalReadFile;
